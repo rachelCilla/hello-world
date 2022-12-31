@@ -1,81 +1,125 @@
 import React, { Component } from "react";
-import { View, Platform, Text, KeyboardAvoidingView } from "react-native";
+import { View, Platform, StyleSheet, KeyboardAvoidingView } from "react-native";
 import { GiftedChat, Bubble } from "react-native-gifted-chat";
+const firebase = require('firebase');
+require('firebase/firestore');
 
 export default class Chat extends Component {
-    constructor() {
-      super();
-      this.state = {
-        messages: [],
+  constructor() {
+    super();
+    this.state = {
+      messages: [],
+      uid: 0,
+      user: {
+        _id: '',
+        name: '',
+        avatar: '',
+      }
+    };
+
+    const firebaseConfig = {
+        apiKey: "AIzaSyBrIf6OrFkwvUjd5oTXlG15AB8Ep1bSG9g",
+        authDomain: "chat-app-6b9ff.firebaseapp.com",
+        projectId: "chat-app-6b9ff",
+        storageBucket: "chat-app-6b9ff.appspot.com",
+        messagingSenderId: "444428490307",
       };
-    }
+
+    if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+        }
+
+    //this stores and retrieves the chat messages your users send
+    this.referenceChatMessages = firebase.firestore().collection("messages");
+      }
+
+    onCollectionUpdate = (querySnapshot) => {
+      const messages = [];
+      // go through each document
+      querySnapshot.forEach((doc) => {
+        // get the QueryDocumentSnapshot's data
+        let data = doc.data();
+        messages.push({
+          _id: data._id,
+          text: data.text,
+          createdAt: data.createdAt.toDate(),
+          user: {
+            _id: data.user._id,
+            name: data.user.name,
+            avatar: data.user.avatar,
+        },
+        });
+      });
+      this.setState({
+        messages,
+    });
+};
 
     componentDidMount() {
-        const name = this.props.route.params.name;
-        
+      let { name } = this.props.route.params;
+      this.props.navigation.setOptions({ title: name });
 
-        //     /*In the Chat screen, you can access the user’s name via this.props.route.params.name */
-        //     /*To display the user’s name in the navigation bar at the top of Chat, you need to configure it. To do so, you can use the function setOptions of the navigation prop in the Chat component to set the title:*/
-          this.props.navigation.setOptions({ title: name });
-        //A chat app needs to send, receive, and display messages, so it makes sense to add messages into the state object.
-        //Let’s set the state with a static message so that you’ll be able to see each element of the UI displayed on screen right away. You do this with the setState() function:
+         //Anonymous user authentication 
+         this.referenceChatMessages = firebase.firestore().collection('messages');
+
+      this.authUnsubscribe = firebase.auth().onAuthStateChanged((user) => {
+        if (!user) {
+          firebase.auth().signInAnonymously();
+        }
         this.setState({
-            //, each message requires an ID, a creation date, and a user object. The user object, likewise, requires a user ID, name, and avatar. 
-            messages: [
-                {
-                    _id:1,
-                    text: 'Hello developer',
-                    createdAt: new Date(),
-                    user:{
-                        _id: 2,
-                        name: 'React Native',
-                        avatar:'https://placeimg.com/140/140/any', 
-                    },
-                },
-            //creates a system message- commonly used to display the last time a user was active in the app—or if someone new joins the chat.
-            {
-             _id: 2,
-             text: "You've entered the chat ",
-             createdAt: new Date(),
-             system: true,
-            },
-
-            ],
+          uid: user.uid,
+          messages: [],
+          user: {
+            _id: user.uid,
+            name: name,
+        },
         });
+        this.unsubscribe = this.referenceChatMessages
+          .orderBy("createdAt", "desc")
+          .onSnapshot(this.onCollectionUpdate);
+      });
     }
-        
-        onSend(messages = []) {
-            // the function setState() is called with the parameter previousState, which is a reference to the component’s state at the time the change is applied. 
-            this.setState((previousState) => ({
-                //the message a user has just sent gets appended to the state messages so that it can be displayed in the chat.
-              messages: GiftedChat.append(previousState.messages, messages),
-            }));
-          }
+
+ componentWillUnmount() {
+   this.unsubscribe();
+   this.authUnsubscribe();
+}
+
+onSend(messages = []) {
+  // the function setState() is called with the parameter previousState, which is a reference to the component’s state at the time the change is applied. 
+  this.setState((previousState) => ({
+      //the message a user has just sent gets appended to the state messages so that it can be displayed in the chat.
+    messages: GiftedChat.append(previousState.messages, messages),
+  }), () => {
+    this.addMessages(this.state.messages[0]);
+});
+}
+
+addMessages= (message) => {
+  this.referenceChatMessages.add({
+  uid: this.state.uid,
+  _id: message._id,
+  text: message.text,
+  createdAt: message.createdAt,
+  user: message.user,
+});
+}
 
 //Customizes text bubbles
-          renderBubble(props) {
-            return (
-              <Bubble
-                {...props}
-                wrapperStyle={{
-                    left:{
-                        backgroundColor: "#fff",
-                    },
-                  right: {
-                    backgroundColor: "#894c9c",
-                  },
-                }}
-              />
-            );
-          }
-        
+renderBubble(props) {
+  return (
+      <Bubble
+          {...props}
+          wrapperStyle={styles.bubble}
+      />
+  )
+}
 
-    
-   
 render() {
   //let color = this.props.route.params.color;
-  const { color } = this.props.route.params;
-    return (
+  const { color,name } = this.props.route.params;
+    
+  return (
 
 <View style={{flex:1, backgroundColor:color}}>
 
@@ -86,13 +130,36 @@ render() {
           messages={this.state.messages}
           onSend={(messages) => this.onSend(messages)}
           user={{
-            _id: 1,
-          }}
+            _id: this.state.user._id,
+            name: name,
+        }}
         />
 {/*if the platform’s OS is Android, add the component KeyboardAvoidingView; else, insert nothing.*/}
 { Platform.OS === 'android' ? <KeyboardAvoidingView behavior="height" /> : null}
 </View>
 
 );
+};
 }
-}
+
+
+const styles = StyleSheet.create({
+  container: {
+      flex: 1,
+  },
+  chatTitle: {
+      color: '#FFFFFF'
+  },
+  bubble: {
+      left: {
+          backgroundColor: 'white',
+      },
+      right: {
+          backgroundColor: 'black'
+      }
+  }
+})
+
+
+
+
