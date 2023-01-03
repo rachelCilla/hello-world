@@ -1,8 +1,10 @@
 import React, { Component } from "react";
 import { View, Platform, StyleSheet, KeyboardAvoidingView } from "react-native";
-import { GiftedChat, Bubble } from "react-native-gifted-chat";
+import { GiftedChat, Bubble, InputToolbar } from "react-native-gifted-chat";
 const firebase = require('firebase');
 require('firebase/firestore');
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import NetInfo from '@react-native-community/netinfo';
 
 export default class Chat extends Component {
   constructor() {
@@ -34,6 +36,7 @@ export default class Chat extends Component {
       }
 
     onCollectionUpdate = (querySnapshot) => {
+      if (!this.state.isConnected) return;
       const messages = [];
       // go through each document
       querySnapshot.forEach((doc) => {
@@ -55,9 +58,37 @@ export default class Chat extends Component {
     });
 };
 
+// retrieve chat messages from asyncStorage
+async getMessages() {
+  let messages = "";
+  try {
+    messages = (await AsyncStorage.getItem("messages")) || [];
+    console.log("called set state for messages", messages);
+    this.setState({
+      messages: JSON.parse(messages),
+    });
+  } catch (error) {
+    console.log(error.message);
+  }
+}
+
     componentDidMount() {
       let { name } = this.props.route.params;
       this.props.navigation.setOptions({ title: name });
+//To find out the user's connection status, you can call the fetch() method on NetInfo, which returns a promise. An object will be returned that contains several properties
+      this.getMessages();
+    NetInfo.fetch().then((connection) => {
+      if (connection.isConnected) {
+        this.setState({
+          isConnected: true,
+        });
+      } else {
+        this.setState({
+          isConnected: false,
+        });
+      }
+    });
+
 
          //Anonymous user authentication 
          this.referenceChatMessages = firebase.firestore().collection('messages');
@@ -91,7 +122,10 @@ onSend(messages = []) {
       //the message a user has just sent gets appended to the state messages so that it can be displayed in the chat.
     messages: GiftedChat.append(previousState.messages, messages),
   }), () => {
-    this.addMessages(this.state.messages[0]);
+    // adds a callback function to setState so that once the state object is updated, you’ll save its current state into asyncStorage by calling your custom function saveMessages():
+    const message = messages[0];
+    this.addMessage(message);
+    this.saveMessages();
 });
 }
 
@@ -105,6 +139,30 @@ addMessages= (message) => {
 });
 }
 
+
+
+// To save messages, you’re using the setItem method that takes two parameters: a key and a value.
+async saveMessages() {
+  try {
+    await AsyncStorage.setItem(
+      "messages",
+      JSON.stringify(this.state.messages)
+    );
+  } catch (error) {
+    console.log(error.message);
+  }
+}
+
+//To delete stored messages, you need to use the removeItem method, which takes the key of the item you want to clear.
+async deleteMessages() {
+  try {
+    await AsyncStorage.removeItem("messages");
+    this.setState({
+      messages: [],
+    });
+  } catch (error) {
+    console.log(error.message);
+  }}
 //Customizes text bubbles
 renderBubble(props) {
   return (
@@ -114,6 +172,13 @@ renderBubble(props) {
       />
   )
 }
+  //renders the default InputToolbar only when the user is online
+  renderInputToolbar(props) {
+    if (this.state.isConnected === false) {
+    } else {
+      return <InputToolbar {...props} />;
+    }
+  }
 
 render() {
   //let color = this.props.route.params.color;
@@ -127,6 +192,7 @@ render() {
 {/*the code for rending your chat interface*/}
 <GiftedChat
           renderBubble={this.renderBubble.bind(this)}
+          renderInputToolbar={this.renderInputToolbar.bind(this)}
           messages={this.state.messages}
           onSend={(messages) => this.onSend(messages)}
           user={{
